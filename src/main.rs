@@ -1,0 +1,1 @@
+fn main() {\n    println!("Starting Rust-Circuit-Breaker service...");\n}\n

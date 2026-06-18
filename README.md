@@ -1,0 +1,1 @@
+# Rust-Circuit-Breaker\n\n## Overview\nEnterprise-grade circuit breaker implementation in Rust.\n\n## Quick Start (1-Click Build)\n\n```bash\ngit clone https://github.com/skylerblue333/Rust-Circuit-Breaker.git\ncd Rust-Circuit-Breaker\n# Build instructions depend on the language\n```\n
