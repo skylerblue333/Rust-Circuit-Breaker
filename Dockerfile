@@ -1,7 +1,10 @@
-FROM rust:1.73 as builder
-WORKDIR /usr/src/app
+FROM rust:1.73-slim as builder
+WORKDIR /app
 COPY . .
 RUN cargo build --release
+
 FROM debian:bookworm-slim
-COPY --from=builder /usr/src/app/target/release/circuit-breaker /usr/local/bin/circuit-breaker
-CMD ["circuit-breaker"]
+WORKDIR /app
+COPY --from=builder /app/target/release/app ./app
+EXPOSE 8080
+CMD ["./app"]
