@@ -1,32 +1,34 @@
 # Rust-Circuit-Breaker
 
-![CI](https://github.com/skylerblue333/Rust-Circuit-Breaker/workflows/CI/badge.svg)
-![Rust](https://img.shields.io/badge/Rust-1.73+-000000.svg?style=flat&logo=rust&logoColor=white)
-![Tokio](https://img.shields.io/badge/Async-Tokio-yellow.svg)
+circuit breaker in Rust.
 
-A memory-safe, zero-cost abstraction API Gateway implementing the Circuit Breaker pattern to protect downstream microservices from cascading failures.
+## 🚀 Overview
+This repository contains a professional implementation of **Rust Circuit Breaker**. It is designed with clean code principles and focuses on functionality and reliability.
 
-## System Architecture
+## 🛠️ Tech Stack
+- **Primary Language**: Rust
+- **Environment**: Node.js / Python / Rust (as applicable)
+- **Key Features**: 
+  - Modular architecture
+  - Clean implementation of core logic
+  - Scalable design
 
+## 📂 Getting Started
 
-```mermaid
-graph TD
-    Client -->|HTTPS/TLS| Actix[Actix-Web Async Server]
-    Actix -->|Zero-Copy| StateMachine[Circuit Breaker State Machine]
-    StateMachine -->|Open| Fallback[Fallback Response]
-    StateMachine -->|Closed| Upstream[Upstream Service]
-    StateMachine -->|Half-Open| Probe[Health Probe]
-```
+### Prerequisites
+- Ensure you have the latest version of the relevant runtime (Node.js, Python, or Rust) installed.
 
-
-## Elite Features
-- **Tokio Async Runtime**: Non-blocking event loop for maximum throughput.
-- **Zero-Cost Abstractions**: Rust's ownership model ensuring thread-safe state mutations.
-- **Actix-Web**: One of the fastest web frameworks available.
-
-## Quick Start
+### Installation
 ```bash
-cargo check
-cargo test
-cargo run --release
+git clone https://github.com/skylerblue333/Rust-Circuit-Breaker.git
+cd Rust-Circuit-Breaker
 ```
+
+### Usage
+Follow the specific language conventions to run the project (e.g., `npm install`, `cargo build`, or `pip install -r requirements.txt`).
+
+## 🛡️ License
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+Built by [Skyler Blue](https://github.com/skylerblue333)
