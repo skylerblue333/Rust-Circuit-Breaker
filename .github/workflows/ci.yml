@@ -1,11 +1,37 @@
 name: CI
-on: [push, pull_request]
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
 jobs:
-  test:
+  verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo check
-      - run: cargo test
-      - run: cargo clippy -- -D warnings
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Check
+        run: cargo check --all-targets
+
+      - name: Tests
+        run: cargo test --all-targets
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Dependency audit
+        uses: actions-rust-lang/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
