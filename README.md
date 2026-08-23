@@ -1,44 +1,70 @@
-<!-- PORTFOLIO PROJECT PROFILE: maintained by the repository owner -->
-
-## Project profile and code-audit snapshot
-
-**What this is:** **Rust-Circuit-Breaker** is a public repository described as: “Enterprise-grade circuit breaker implementation in Rust. #SkyCoin4444 #AI #Blockchain #DevOps #Innovation” Its dominant language signals are **Rust (2 files)**.
-
-**Why it has value:** Its value is best understood through the implementation evidence currently present in the repository: **16 tracked files** were observed in the shallow audit, with the source structure and existing documentation providing the project’s specific context. This README does not treat a prototype, experiment, or archive as a production system without supporting evidence.
-
-**Implementation evidence:** No test-related file was detected by filename heuristics.; 2 dependency or package manifest(s) detected; 2 build/CI/infrastructure signal(s) detected; and 3 documentation or governance file(s) detected. Test filenames observed include none detected. Dependency or package files include `Cargo.toml`, `package.json`. Build, CI, or infrastructure signals include `Dockerfile`, `.github/workflows/ci.yml`.
-
-**Current status:** The repository is tracked on the `main` branch. The existing source tree, configuration, tests, workflows, and documentation remain authoritative for supported behavior and maturity. A code audit is not a production-readiness certification, and the presence of a test or workflow file does not establish that all checks pass.
-
-**Relationship to the wider portfolio:** This repository is one focused component of the broader Skyler Blue Spillers portfolio across AI, software engineering, cloud and DevOps, cybersecurity, blockchain, finance, education, social systems, and creative work. It may provide a service boundary, implementation pattern, experiment, archive, or reusable idea for related repositories. Treat repositories as technical dependencies only where documented interfaces and verified project requirements support that relationship.
-
-**Quality and security note:** No obvious secret-like pattern was detected by the limited static scan; this is not a substitute for a security audit. No TODO/FIXME marker was detected in the scanned text files.
-
----
-
 # Rust Circuit Breaker
 
-![GitHub stars](https://img.shields.io/github/stars/skylerblue333/Rust-Circuit-Breaker?style=flat-square)
-![GitHub license](https://img.shields.io/github/license/skylerblue333/Rust-Circuit-Breaker?style=flat-square)
+An async-friendly Rust circuit-breaker component for protecting upstream dependencies from cascading failure. The implementation provides explicit `Closed`, `Open`, and `HalfOpen` states, guarded half-open probes, non-blocking admission around protected work, and an Actix Web demonstration gateway.
 
-## 🌟 Overview
-**Rust-Circuit-Breaker** is a professional-grade project within the **SkyCoin4444** ecosystem. It focuses on delivering high-value solutions in the domain of **Rust**.
+> **SkyCoin4444 / IITR infrastructure component:** designed to sit between traffic gateways and failure-prone services such as APIs, RPC backends, protocol nodes, or external providers.
 
-## 🚀 Key Features
-- **Scalable Architecture**: Designed for enterprise-level growth and performance.
-- **Modern Standards**: Implements best practices for clean code and maintainability.
-- **Robust Integration**: Built to work seamlessly within modern cloud-native environments.
+## Implemented behavior
 
-## 🛠️ Technology Stack
-- **Primary Domain**: Rust
-- **Ecosystem**: SkyCoin4444 Digital Platform
+- Explicit circuit states: `Closed`, `Open`, `HalfOpen`.
+- Configurable failure threshold and reset timeout.
+- Saturating failure counter.
+- Exactly one half-open probe at a time.
+- `allow()` / `record_success()` / `record_failure()` API so slow upstream work does not hold the breaker lock.
+- Backward-compatible synchronous `execute()` helper.
+- Actix Web integration example.
+- Graceful failure response with HTTP `503 Service Unavailable`.
+- Rust formatting, compilation, tests, Clippy, and dependency auditing in GitHub Actions.
 
-## 📂 Structure
-The project is organized into a modular structure to ensure clarity and ease of development.
+## Quick start
 
-## 👨‍💻 Author
-**Skyler Blue Spillers**
-*Professional Chess Player & Software Engineer*
+```bash
+cargo fmt --all -- --check
+cargo check --all-targets
+cargo test --all-targets
+cargo clippy --all-targets --all-features -- -D warnings
+cargo run
+```
 
----
-*Powered by SkyCoin4444*
+Example endpoint: `GET http://localhost:8080/api/v1/resource`.
+
+## State machine
+
+```text
+             failure threshold reached
+        +------------------------------+
+        |                              v
+     +--------+                    +--------+
+     | CLOSED | -----------------> |  OPEN  |
+     +---+----+                    +---+----+
+         ^                             |
+         | success                     | reset timeout
+         |                             v
+         |                         +---------+
+         +-------------------------| HALFOPEN|
+                    probe success  +----+----+
+                                         |
+                              probe failure -> OPEN
+```
+
+## Product/value surfaces
+
+Potential commercial applications include:
+
+1. reusable Rust reliability library licensing/support;
+2. API gateway resilience module;
+3. gRPC dependency protection;
+4. managed reliability/SRE integration;
+5. multi-tenant SaaS protection layer;
+6. observability and incident automation integrations;
+7. security/resilience assessments;
+8. enterprise deployment engineering;
+9. SkyCoin4444 node protection;
+10. premium support and SLA packages;
+11. training, migration, and architecture services.
+
+These are potential value/revenue surfaces, not claims of current revenue or customer adoption.
+
+## Scope
+
+A circuit breaker is one resilience primitive. Production systems should pair it with timeouts, bounded retries, bulkheads, rate limiting, telemetry, authentication, and explicit dependency-failure policy.
