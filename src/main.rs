@@ -1,20 +1,42 @@
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use std::time::Duration;
 use app::circuit_breaker::CircuitBreaker;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::RwLock;
 
 async fn protected_resource(cb: web::Data<Arc<RwLock<CircuitBreaker>>>) -> impl Responder {
-    let mut breaker = cb.write().await;
-    
-    let result = breaker.execute(|| {
-        let success = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos() % 2 == 0;
-        if success { Ok("Success data") } else { Err("Simulated upstream failure") }
-    });
+    {
+        let mut breaker = cb.write().await;
+        if !breaker.allow() {
+            return HttpResponse::ServiceUnavailable()
+                .json(serde_json::json!({ "error": "Circuit is OPEN - Fast failing" }));
+        }
+    }
 
+    // The upstream operation runs without holding the circuit-breaker lock.
+    // This prevents slow I/O from serializing unrelated requests.
+    let result = {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .subsec_nanos();
+        if nanos % 2 == 0 {
+            Ok("Success data")
+        } else {
+            Err("Simulated upstream failure")
+        }
+    };
+
+    let mut breaker = cb.write().await;
     match result {
-        Ok(data) => HttpResponse::Ok().json(serde_json::json!({ "status": "success", "data": data })),
-        Err(e) => HttpResponse::ServiceUnavailable().json(serde_json::json!({ "error": e }))
+        Ok(data) => {
+            breaker.record_success();
+            HttpResponse::Ok().json(serde_json::json!({ "status": "success", "data": data }))
+        }
+        Err(error) => {
+            breaker.record_failure();
+            HttpResponse::ServiceUnavailable().json(serde_json::json!({ "error": error }))
+        }
     }
 }
 
