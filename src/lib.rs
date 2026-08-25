@@ -1,145 +1,173 @@
-pub use circuit_breaker::{CircuitBreaker, State};
+use serde::Serialize;
+use std::time::{Duration, Instant};
 
-pub mod circuit_breaker {
-    use std::time::{Duration, Instant};
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum State {
+    Closed,
+    Open,
+    HalfOpen,
+}
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub enum State {
-        Closed,
-        Open,
-        HalfOpen,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Outcome {
+    Success,
+    Failure,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Snapshot {
+    pub state: State,
+    pub failure_count: u32,
+    pub failure_threshold: u32,
+    pub half_open_probe_in_flight: bool,
+}
+
+#[derive(Debug)]
+pub struct CircuitBreaker {
+    state: State,
+    failure_count: u32,
+    failure_threshold: u32,
+    reset_timeout: Duration,
+    last_failure_time: Option<Instant>,
+    half_open_probe_in_flight: bool,
+}
+
+impl CircuitBreaker {
+    pub fn new(failure_threshold: u32, reset_timeout: Duration) -> Result<Self, &'static str> {
+        if failure_threshold == 0 {
+            return Err("failure threshold must be positive");
+        }
+        if reset_timeout.is_zero() {
+            return Err("reset timeout must be positive");
+        }
+
+        Ok(Self {
+            state: State::Closed,
+            failure_count: 0,
+            failure_threshold,
+            reset_timeout,
+            last_failure_time: None,
+            half_open_probe_in_flight: false,
+        })
     }
 
-    pub struct CircuitBreaker {
-        pub state: State,
-        pub failure_count: u32,
-        pub failure_threshold: u32,
-        pub reset_timeout: Duration,
-        pub last_failure_time: Option<Instant>,
-        half_open_in_flight: bool,
+    pub fn snapshot(&mut self) -> Snapshot {
+        self.refresh_state();
+        Snapshot {
+            state: self.state,
+            failure_count: self.failure_count,
+            failure_threshold: self.failure_threshold,
+            half_open_probe_in_flight: self.half_open_probe_in_flight,
+        }
     }
 
-    impl CircuitBreaker {
-        pub fn new(failure_threshold: u32, reset_timeout: Duration) -> Self {
-            assert!(failure_threshold > 0, "failure threshold must be positive");
-            Self {
-                state: State::Closed,
-                failure_count: 0,
-                failure_threshold,
-                reset_timeout,
-                last_failure_time: None,
-                half_open_in_flight: false,
+    /// Reserves permission for one upstream attempt.
+    ///
+    /// In half-open state exactly one probe may be in flight. Callers must
+    /// report that attempt through `record_outcome` before another probe can run.
+    pub fn allow(&mut self) -> bool {
+        self.refresh_state();
+        match self.state {
+            State::Open => false,
+            State::Closed => true,
+            State::HalfOpen if self.half_open_probe_in_flight => false,
+            State::HalfOpen => {
+                self.half_open_probe_in_flight = true;
+                true
             }
         }
+    }
 
-        /// Returns true when an operation may start.
-        ///
-        /// The state lock can be held briefly by callers, allowing the actual
-        /// upstream operation to run without blocking other requests.
-        pub fn allow(&mut self) -> bool {
-            self.update_state();
-            match self.state {
-                State::Open => false,
-                State::Closed => true,
-                State::HalfOpen => {
-                    if self.half_open_in_flight {
-                        false
-                    } else {
-                        self.half_open_in_flight = true;
-                        true
-                    }
-                }
-            }
+    pub fn record_outcome(&mut self, outcome: Outcome) {
+        match outcome {
+            Outcome::Success => self.record_success(),
+            Outcome::Failure => self.record_failure(),
         }
+    }
 
-        pub fn record_success(&mut self) {
-            self.failure_count = 0;
-            self.last_failure_time = None;
-            self.half_open_in_flight = false;
-            self.state = State::Closed;
+    pub fn record_success(&mut self) {
+        self.failure_count = 0;
+        self.last_failure_time = None;
+        self.half_open_probe_in_flight = false;
+        self.state = State::Closed;
+    }
+
+    pub fn record_failure(&mut self) {
+        self.failure_count = self.failure_count.saturating_add(1);
+        self.last_failure_time = Some(Instant::now());
+        self.half_open_probe_in_flight = false;
+        if self.state == State::HalfOpen || self.failure_count >= self.failure_threshold {
+            self.state = State::Open;
         }
+    }
 
-        pub fn record_failure(&mut self) {
-            self.failure_count = self.failure_count.saturating_add(1);
-            self.last_failure_time = Some(Instant::now());
-            self.half_open_in_flight = false;
-            if self.failure_count >= self.failure_threshold {
-                self.state = State::Open;
-            }
+    fn refresh_state(&mut self) {
+        if self.state != State::Open {
+            return;
         }
-
-        pub fn execute<F, T, E>(&mut self, operation: F) -> Result<T, &'static str>
-        where
-            F: FnOnce() -> Result<T, E>,
+        if self
+            .last_failure_time
+            .is_some_and(|instant| instant.elapsed() >= self.reset_timeout)
         {
-            if !self.allow() {
-                return Err("Circuit is OPEN - Fast failing");
-            }
-
-            match operation() {
-                Ok(result) => {
-                    self.record_success();
-                    Ok(result)
-                }
-                Err(_) => {
-                    self.record_failure();
-                    Err("Operation failed")
-                }
-            }
-        }
-
-        fn update_state(&mut self) {
-            if self.state == State::Open {
-                if let Some(last_fail) = self.last_failure_time {
-                    if last_fail.elapsed() >= self.reset_timeout {
-                        self.state = State::HalfOpen;
-                        self.half_open_in_flight = false;
-                    }
-                }
-            }
+            self.state = State::HalfOpen;
+            self.half_open_probe_in_flight = false;
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{CircuitBreaker, State};
+    use super::{CircuitBreaker, Outcome, State};
     use std::time::Duration;
 
     #[test]
-    fn test_circuit_breaker_state_transitions() {
-        let mut cb = CircuitBreaker::new(2, Duration::from_millis(20));
-        assert_eq!(cb.state, State::Closed);
-
-        assert!(!cb.execute(|| -> Result<(), ()> { Err(()) }).is_ok());
-        assert_eq!(cb.state, State::Closed);
-
-        assert!(cb.execute(|| -> Result<(), ()> { Err(()) }).is_err());
-        assert_eq!(cb.state, State::Open);
-
-        assert!(cb.execute(|| -> Result<(), ()> { Ok(()) }).is_err());
-        std::thread::sleep(Duration::from_millis(30));
-
-        assert!(cb.allow());
-        assert_eq!(cb.state, State::HalfOpen);
-        assert!(!cb.allow(), "only one half-open probe may run");
-        cb.record_success();
-        assert_eq!(cb.state, State::Closed);
+    fn rejects_invalid_configuration() {
+        assert!(CircuitBreaker::new(0, Duration::from_secs(1)).is_err());
+        assert!(CircuitBreaker::new(1, Duration::ZERO).is_err());
     }
 
     #[test]
-    #[should_panic(expected = "failure threshold must be positive")]
-    fn rejects_zero_threshold() {
-        let _ = CircuitBreaker::new(0, Duration::from_secs(1));
+    fn opens_after_threshold_and_recovers_with_one_probe() {
+        let mut breaker = CircuitBreaker::new(2, Duration::from_millis(15)).unwrap();
+        assert!(breaker.allow());
+        breaker.record_outcome(Outcome::Failure);
+        assert_eq!(breaker.snapshot().state, State::Closed);
+
+        assert!(breaker.allow());
+        breaker.record_outcome(Outcome::Failure);
+        assert_eq!(breaker.snapshot().state, State::Open);
+        assert!(!breaker.allow());
+
+        std::thread::sleep(Duration::from_millis(20));
+        assert!(breaker.allow());
+        assert_eq!(breaker.snapshot().state, State::HalfOpen);
+        assert!(!breaker.allow());
+
+        breaker.record_outcome(Outcome::Success);
+        let snapshot = breaker.snapshot();
+        assert_eq!(snapshot.state, State::Closed);
+        assert_eq!(snapshot.failure_count, 0);
     }
 
     #[test]
-    fn success_resets_failure_count() {
-        let mut cb = CircuitBreaker::new(3, Duration::from_secs(1));
-        let _ = cb.execute(|| -> Result<(), ()> { Err(()) });
-        assert_eq!(cb.failure_count, 1);
-        let _ = cb.execute(|| -> Result<(), ()> { Ok(()) });
-        assert_eq!(cb.failure_count, 0);
-        assert_eq!(cb.state, State::Closed);
+    fn failed_half_open_probe_reopens_immediately() {
+        let mut breaker = CircuitBreaker::new(1, Duration::from_millis(5)).unwrap();
+        assert!(breaker.allow());
+        breaker.record_failure();
+        std::thread::sleep(Duration::from_millis(8));
+        assert!(breaker.allow());
+        breaker.record_failure();
+        assert_eq!(breaker.snapshot().state, State::Open);
+    }
+
+    #[test]
+    fn success_clears_partial_failures() {
+        let mut breaker = CircuitBreaker::new(3, Duration::from_secs(1)).unwrap();
+        breaker.record_failure();
+        assert_eq!(breaker.snapshot().failure_count, 1);
+        breaker.record_success();
+        assert_eq!(breaker.snapshot().failure_count, 0);
     }
 }
