@@ -1,7 +1,8 @@
-name: CI
+name: circuit-breaker-ci
 
 on:
   push:
+    branches: [main, "product/**"]
   pull_request:
 
 permissions:
@@ -9,29 +10,42 @@ permissions:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-
-      - name: Format check
+      - name: Generate lockfile
+        run: cargo generate-lockfile
+      - name: Format
         run: cargo fmt --all -- --check
-
       - name: Check
-        run: cargo check --all-targets
-
-      - name: Tests
-        run: cargo test --all-targets
-
+        run: cargo check --locked --all-targets
       - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+      - name: Tests
+        run: cargo test --locked --all-targets
       - name: Dependency audit
         uses: actions-rust-lang/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Release build
+        run: cargo build --release --locked
+      - name: Build container
+        run: docker build -t sky-circuit-breaker:ci .
+      - name: Verify non-root image
+        run: test "$(docker image inspect sky-circuit-breaker:ci --format '{{.Config.User}}')" != "0:0"
+      - name: Smoke-test runtime
+        run: |
+          set -euo pipefail
+          docker run -d --rm --name sky-circuit-breaker-ci -p 18080:8080 sky-circuit-breaker:ci
+          trap 'docker stop sky-circuit-breaker-ci >/dev/null 2>&1 || true' EXIT
+          for attempt in {1..20}; do
+            if curl --fail --silent http://127.0.0.1:18080/healthz >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs sky-circuit-breaker-ci
+          exit 1
