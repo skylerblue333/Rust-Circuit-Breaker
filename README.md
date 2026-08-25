@@ -1,70 +1,81 @@
-# Rust Circuit Breaker
+# Sky Circuit Breaker
 
-An async-friendly Rust circuit-breaker component for protecting upstream dependencies from cascading failure. The implementation provides explicit `Closed`, `Open`, and `HalfOpen` states, guarded half-open probes, non-blocking admission around protected work, and an Actix Web demonstration gateway.
-
-> **SkyCoin4444 / IITR infrastructure component:** designed to sit between traffic gateways and failure-prone services such as APIs, RPC backends, protocol nodes, or external providers.
+**Status: engineering beta.** A deterministic Rust resilience service and library for exercising circuit-breaker state transitions without fabricating upstream success or production deployment.
 
 ## Implemented behavior
 
-- Explicit circuit states: `Closed`, `Open`, `HalfOpen`.
-- Configurable failure threshold and reset timeout.
-- Saturating failure counter.
-- Exactly one half-open probe at a time.
-- `allow()` / `record_success()` / `record_failure()` API so slow upstream work does not hold the breaker lock.
-- Backward-compatible synchronous `execute()` helper.
-- Actix Web integration example.
-- Graceful failure response with HTTP `503 Service Unavailable`.
-- Rust formatting, compilation, tests, Clippy, and dependency auditing in GitHub Actions.
+- Closed → Open transition after a configurable consecutive-failure threshold.
+- Open → Half Open after a configurable reset timeout.
+- Exactly one half-open probe may be in flight.
+- A successful probe closes and clears failures; a failed half-open probe reopens immediately.
+- Structured state snapshots expose breaker state and counters.
+- `POST /v1/probe` accepts an explicit deterministic `success` or `failure` outcome for integration/testing.
+- `/healthz`, `/readyz`, and `/v1/state` operational endpoints.
+- Strict configuration validation for positive thresholds/timeouts.
+- Rustfmt, Clippy warnings-as-errors, tests, dependency audit, release build, non-root image verification, and a live container health request in CI.
 
-## Quick start
+The service deliberately removed the earlier wall-clock parity “random upstream” behavior. A resilience control primitive should be deterministic under test; real upstream calls belong in the integrating gateway/service.
+
+## Run
+
+```bash
+cargo run
+```
+
+Configuration:
+
+```text
+PORT=8080
+FAILURE_THRESHOLD=3
+RESET_TIMEOUT_MS=10000
+```
+
+Inspect state:
+
+```bash
+curl -sS http://127.0.0.1:8080/v1/state
+```
+
+Record a failed allowed probe:
+
+```bash
+curl -sS -X POST http://127.0.0.1:8080/v1/probe \
+  -H 'content-type: application/json' \
+  -d '{"outcome":"failure"}'
+```
+
+When the breaker is open, `/v1/probe` returns `503` and does not consume a probe. After the reset timeout, one probe is admitted in half-open state.
+
+## Container
+
+```bash
+docker build -t sky-circuit-breaker .
+docker run --rm -p 8080:8080 sky-circuit-breaker
+```
+
+The runtime image executes as UID/GID `10001:10001`.
+
+## SKYCOIN4444 integration
+
+Use the library directly inside a Rust service or call the small HTTP boundary from integration tests/control tooling. A real gateway should own upstream I/O, request authentication, retries, timeouts, tracing, and policy. This repository should not be copied into the flagship monolith; integrate through a stable adapter or crate boundary.
+
+## Scope limitations
+
+This is not a distributed circuit-breaker control plane, service mesh, load balancer, retry engine, proxy, persistent state store, or production availability system. State is process-local and resets on restart. It does not provide tenant isolation, authentication/authorization, metrics persistence, cross-replica coordination, HA, TLS termination, or verified production deployment.
+
+## Verification
 
 ```bash
 cargo fmt --all -- --check
 cargo check --all-targets
-cargo test --all-targets
 cargo clippy --all-targets --all-features -- -D warnings
-cargo run
+cargo test --all-targets
+cargo audit
+cargo build --release
 ```
 
-Example endpoint: `GET http://localhost:8080/api/v1/resource`.
+GitHub Actions is the authoritative merge gate for the exact pull-request head.
 
-## State machine
+## License
 
-```text
-             failure threshold reached
-        +------------------------------+
-        |                              v
-     +--------+                    +--------+
-     | CLOSED | -----------------> |  OPEN  |
-     +---+----+                    +---+----+
-         ^                             |
-         | success                     | reset timeout
-         |                             v
-         |                         +---------+
-         +-------------------------| HALFOPEN|
-                    probe success  +----+----+
-                                         |
-                              probe failure -> OPEN
-```
-
-## Product/value surfaces
-
-Potential commercial applications include:
-
-1. reusable Rust reliability library licensing/support;
-2. API gateway resilience module;
-3. gRPC dependency protection;
-4. managed reliability/SRE integration;
-5. multi-tenant SaaS protection layer;
-6. observability and incident automation integrations;
-7. security/resilience assessments;
-8. enterprise deployment engineering;
-9. SkyCoin4444 node protection;
-10. premium support and SLA packages;
-11. training, migration, and architecture services.
-
-These are potential value/revenue surfaces, not claims of current revenue or customer adoption.
-
-## Scope
-
-A circuit breaker is one resilience primitive. Production systems should pair it with timeouts, bounded retries, bulkheads, rate limiting, telemetry, authentication, and explicit dependency-failure policy.
+See `LICENSE`.
