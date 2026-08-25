@@ -11,6 +11,4 @@ COPY --from=builder /app/target/release/sky-circuit-breaker ./sky-circuit-breake
 USER 10001:10001
 ENV PORT=8080 FAILURE_THRESHOLD=3 RESET_TIMEOUT_MS=10000
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD ["/app/sky-circuit-breaker", "--help"]
 CMD ["./sky-circuit-breaker"]
